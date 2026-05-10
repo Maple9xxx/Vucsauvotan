@@ -2325,7 +2325,8 @@ class InventoryScene extends Scene {
     if(!it)return false;
     if(this.player.useItem(it,this.game)){
       this.info=it.data?`Đã trang bị ${it.data.name}`:`Đã dùng ${it.id}`;
-      this.infoTime=1.4;
+      this.infoTime=1.8;
+      this.selectedInv=-1; // FIX: reset selection sau khi dùng/trang bị
       this._save();
       return true;
     }
@@ -2335,7 +2336,7 @@ class InventoryScene extends Scene {
     if(!this.selectedEquip)return false;
     if(this.player._unequip(this.selectedEquip)){
       this.info=`Đã tháo ${GEAR_SLOT_LABELS[this.selectedEquip]||this.selectedEquip}`;
-      this.infoTime=1.4;
+      this.infoTime=1.8;
       this._save();
       return true;
     }
@@ -2346,11 +2347,12 @@ class InventoryScene extends Scene {
     if(y<55&&x<90){this.game.switchScene('gameplay',{fromInventory:true});return;}
 
     const eqOrder=['weapon','armor','ring','relic'];
-    const equipX=18,equipY=95,eqSize=70;
+    // FIX: coords phải khớp draw() — ex=182+(i%2)*78, ey=96+(i/2|0)*66, w=68, h=54
+    const equipX=182,equipY=96,eqW=68,eqH=54,eqColGap=78,eqRowGap=66;
     for(let i=0;i<eqOrder.length;i++){
       const slot=eqOrder[i];
-      const ex=equipX+(i%2)*78, ey=equipY+Math.floor(i/2)*86;
-      if(x>ex&&x<ex+eqSize&&y>ey&&y<ey+eqSize){
+      const ex=equipX+(i%2)*eqColGap, ey=equipY+Math.floor(i/2)*eqRowGap;
+      if(x>=ex&&x<=ex+eqW&&y>=ey&&y<=ey+eqH){
         this.selectedEquip=slot;
         const cur=this.player.equipment&&this.player.equipment[slot];
         if(cur && this.selectedInv<0){
@@ -2380,8 +2382,9 @@ class InventoryScene extends Scene {
       }
     }
 
-    if(this.selectedInv>=0&&x>250&&x<340&&y>508&&y<548){this._equipSelected();return;}
-    if(this.selectedEquip&&x>250&&x<340&&y>558&&y<590){this._unequipSelected();return;}
+    // FIX: touch area khớp với draw() — x=242,y=516,w=110,h=48 và y=568,h=48
+    if(this.selectedInv>=0&&x>=242&&x<=352&&y>=516&&y<=564){this._equipSelected();return;}
+    if(x>=242&&x<=352&&y>=568&&y<=616){this._unequipSelected();return;}
   }
   draw(){
     const{ctx,W,H}=this;
@@ -2436,24 +2439,36 @@ class InventoryScene extends Scene {
       if(stack){ctx.font=gearData?'18px Arial':'20px Arial';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.fillText(gearData?gearData.icon:(ITEM_DB[stack.id]?.icon||'?'),sx+inv.size/2,sy+31);ctx.font='11px Arial';ctx.fillStyle=gearData?rarityColor:CFG.C.textGold;ctx.fillText(gearData?gearData.name.split(' [')[0]:`x${stack.qty}`,sx+inv.size/2,sy+49);if(!gearData)ctx.fillText(`x${stack.qty}`,sx+inv.size/2,sy+60);}else{ctx.font='26px Arial';ctx.fillStyle='#334';ctx.textAlign='center';ctx.fillText('+',sx+inv.size/2,sy+40);}
     }
 
-    Draw.roundRect(ctx,246,508,88,40,8,'rgba(30,30,60,0.95)',CFG.C.textGold);
-    ctx.font='bold 12px Arial';ctx.fillStyle=CFG.C.textGold;ctx.textAlign='center';
+    // ── Nút TRANG BỊ/DÙNG (right, full height) ──
     const it=this.selectedInv>=0?this.player.inventory[this.selectedInv]:null;
-    ctx.fillText(this.selectedInv>=0&&it&&it.data?'TRANG BỊ':(this.selectedInv>=0?'DÙNG':'CHỌN'),290,533);
-    Draw.roundRect(ctx,246,558,88,32,8,'rgba(30,30,60,0.95)',CFG.C.neon2);
-    ctx.fillStyle=CFG.C.neon2;ctx.fillText('THÁO',290,579);
+    const btnLabel=it?(it.data?'TRANG BỊ':'DÙNG'):'CHỌN';
+    const btnColor=it?(it.data?CFG.C.textGold:CFG.C.neon2):CFG.C.textDim;
+    Draw.roundRect(ctx,242,516,110,48,8,it?'rgba(30,30,60,0.96)':'rgba(14,14,30,0.8)',btnColor);
+    ctx.font='bold 13px Arial';ctx.fillStyle=btnColor;ctx.textAlign='center';
+    ctx.fillText(btnLabel,297,545);
 
+    // ── Nút THÁO ──
+    const selSlotItem=this.selectedEquip&&this.player.equipment?.[this.selectedEquip];
+    const tháoColor=selSlotItem?CFG.C.neon2:'#445';
+    Draw.roundRect(ctx,242,568,110,48,8,selSlotItem?'rgba(20,20,55,0.96)':'rgba(10,10,25,0.7)',tháoColor);
+    ctx.font='bold 13px Arial';ctx.fillStyle=tháoColor;ctx.textAlign='center';
+    ctx.fillText('THÁO',297,597);
+
+    // ── Detail panel (left side, fixed height = 98px, fits within screen) ──
     const selItem=this.selectedInv>=0?this.player.inventory[this.selectedInv]:null;
     if(selItem){
-      const detailX=18,detailY=520,detailW=216,detailH=122;
+      const detailX=10,detailY=516,detailW=228,detailH=100;
       const detail=selItem.data||ITEM_DB[selItem.id];
       const rarityColor=detail?.rarity!=null?CFG.RARITY_COLORS[detail.rarity]:CFG.C.neon1;
-      Draw.roundRect(ctx,detailX,detailY,detailW,detailH,8,U.rgba(rarityColor,0.12),rarityColor);
-      ctx.font='bold 12px Arial';ctx.fillStyle=rarityColor;ctx.textAlign='left';ctx.fillText(detail?.name||ITEM_DB[selItem.id]?.name||selItem.id,detailX+10,detailY+22);
-      ctx.font='11px Arial';ctx.fillStyle=CFG.C.text;ctx.fillText(detail?.baseName?`Base: ${detail.baseName}`:(ITEM_DB[selItem.id]?.type==='gear'?'Trang bị':'Tiêu hao'),detailX+10,detailY+42);
-      ctx.fillStyle=CFG.C.textDim;ctx.fillText((detail?.desc||ITEM_DB[selItem.id]?.desc||'').slice(0,42),detailX+10,detailY+60);
-      ctx.fillStyle=rarityColor;ctx.fillText((detail?.affixes||[]).join(' · ').slice(0,44)||'Không có affix',detailX+10,detailY+80);
-      if(detail?.mods){ctx.fillStyle=CFG.C.textGold;ctx.fillText(gearBonusText(detail).slice(0,54),detailX+10,detailY+100);}
+      Draw.roundRect(ctx,detailX,detailY,detailW,detailH,8,U.rgba(rarityColor,0.13),rarityColor);
+      ctx.font='bold 11px Arial';ctx.fillStyle=rarityColor;ctx.textAlign='left';
+      ctx.fillText((detail?.name||ITEM_DB[selItem.id]?.name||selItem.id).slice(0,28),detailX+8,detailY+18);
+      ctx.font='10px Arial';ctx.fillStyle=CFG.C.text;
+      ctx.fillText(detail?.baseName?`Base: ${detail.baseName}`:(ITEM_DB[selItem.id]?.type==='gear'?'Trang bị':'Tiêu hao'),detailX+8,detailY+36);
+      ctx.fillStyle=CFG.C.textDim;
+      ctx.fillText((detail?.desc||ITEM_DB[selItem.id]?.desc||'').slice(0,38),detailX+8,detailY+54);
+      if(detail?.affixes?.length){ctx.fillStyle=rarityColor;ctx.fillText(detail.affixes.join(' · ').slice(0,36),detailX+8,detailY+72);}
+      if(detail?.mods){ctx.fillStyle=CFG.C.textGold;ctx.fillText(gearBonusText(detail).slice(0,38),detailX+8,detailY+90);}
     }
 
     if(this.infoTime>0){ctx.save();ctx.globalAlpha=Math.min(1,this.infoTime);Draw.roundRect(ctx,40,H-62,W-80,34,8,'rgba(5,5,20,0.95)',CFG.C.neon1);ctx.font='12px Arial';ctx.fillStyle=CFG.C.neon1;ctx.textAlign='center';ctx.fillText(this.info,W/2,H-40);ctx.restore();}
@@ -2645,16 +2660,15 @@ class GameplayScene extends Scene {
   _initUI(){
     const W=this.W,H=this.H;
     this.joystick=new VirtualJoystick(85,H-110,55);
-    // FIX: Icon buttons moved to y=86 (was y=74) to avoid overlap with boss HP bar (y=60-76)
-    // pause + minimap: top-right but pushed lower; inventory/shop: slightly lower still
+    // FIX: Icon buttons — inventory/shop pushed to y=102 (below boss HP bar area y=60-96)
     this.touchTargets={
       skill1:{x:W-85,y:H-128,r:35},
       skill2:{x:W-155,y:H-83,r:28},
       dash:{x:W-50,y:H-78,r:25},
       pause:{x:W-22,y:24,r:18},
       minimap:{x:W-22,y:50,r:16},
-      inventory:{x:W-50,y:82,r:18},
-      shop:{x:W-82,y:82,r:18},
+      inventory:{x:W-50,y:102,r:18},
+      shop:{x:W-82,y:102,r:18},
     };
     this.quickSlotTargets=[{x:W/2-64,y:H-25,r:18},{x:W/2-16,y:H-25,r:18},{x:W/2+32,y:H-25,r:18}];
     this.showMinimap=true;this.time=0;this.paused=false;
@@ -3288,10 +3302,9 @@ class GameplayScene extends Scene {
   }
 
   _drawBossHPBar(ctx,W,boss){
-    // FIX: Boss bar now at y=60 (below top bar separator at y=58), not y=55
-    // This prevents overlap with icon buttons row (pause/minimap at y~74)
-    const bx=W*0.08,by=60,bw=W*0.84,bh=14;
-    ctx.fillStyle='rgba(0,0,0,0.78)';ctx.fillRect(bx-4,by-2,bw+8,bh+22);
+    // FIX: Boss bar tại y=62, background mở rộng đủ cho enrage text, không đè inventory/shop buttons
+    const bx=W*0.08,by=62,bw=W*0.84,bh=14;
+    ctx.fillStyle='rgba(0,0,0,0.82)';ctx.fillRect(bx-4,by-2,bw+8,bh+26);
     const pct=Math.max(0,boss.hp/boss.maxHp);
     const barCol=boss.enraged?CFG.C.neon3:CFG.C.boss;
     Draw.bar(ctx,bx,by,bw,bh,pct,barCol,'#330011',barCol);
@@ -3310,7 +3323,7 @@ class GameplayScene extends Scene {
     // Previously at top-left y=62 which conflicted with boss HP bar area
     const d=this.dungeon,T=2;
     const mw=d.W*T,mh=d.H*T;
-    const mx=8, my=H-mh-90; // above joystick, bottom-left
+    const mx=8, my=H-mh-175; // FIX: moved up 85px — clear of joystick (center y=H-110, r=55)
     ctx.save();ctx.globalAlpha=0.82;
     ctx.fillStyle='rgba(5,5,20,0.88)';
     Draw.roundRect(ctx,mx-3,my-3,mw+6,mh+6,4,'rgba(5,5,20,0.88)','#334');
