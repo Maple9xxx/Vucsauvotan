@@ -7,18 +7,38 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#07071a">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Vực Sâu Vô Tận - Dark Fantasy Roguelike">
 <title>Vực Sâu Vô Tận</title>
 <link rel="manifest" href="manifest.json">
 <style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;}
-html,body{width:100%;height:100%;overflow:hidden;background:#07071a;touch-action:none;}
-#gameCanvas{display:block;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none;}
-#ad-placeholder{display:none;position:fixed;bottom:0;width:100%;height:60px;background:rgba(0,0,0,0.8);color:#666;text-align:center;line-height:60px;font-size:12px;z-index:999;}
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#07071a;touch-action:none;position:fixed;overscroll-behavior:none;}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  #gameCanvas{display:block;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;touch-action:none;will-change:transform;-webkit-backface-visibility:hidden;backface-visibility:hidden;}
+  #boot-overlay{position:fixed;inset:0;background:#07071a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;pointer-events:none;transition:opacity 0.4s ease;}
+  #boot-overlay.hidden{opacity:0;}
+  #boot-title{font-family:'Courier New',monospace;font-size:22px;font-weight:bold;color:#cc44ff;text-shadow:0 0 18px #cc44ff,0 0 36px #cc44ff44;letter-spacing:2px;margin-bottom:6px;}
+  #boot-sub{font-family:'Courier New',monospace;font-size:13px;color:#00ccff;text-shadow:0 0 10px #00ccff;margin-bottom:32px;}
+  #boot-bar-wrap{width:200px;height:6px;border-radius:3px;background:rgba(100,80,200,0.3);overflow:hidden;}
+  #boot-bar{height:100%;background:linear-gradient(90deg,#cc44ff,#00ccff);border-radius:3px;width:0%;animation:bootLoad 1.4s ease-in-out forwards;}
+  @keyframes bootLoad{0%{width:0%}40%{width:55%}100%{width:100%}}
 </style>
 </head>
 <body>
+<div id="boot-overlay">
+  <div id="boot-title">VỰC SÂU VÔ TẬN</div>
+  <div id="boot-sub">◆ DARK FANTASY ROGUELIKE ◆</div>
+  <div id="boot-bar-wrap"><div id="boot-bar"></div></div>
+</div>
 <canvas id="gameCanvas"></canvas>
-<div id="ad-placeholder">[ Quảng cáo - Placeholder ]</div>
+<script>
+(function(){
+  const overlay=document.getElementById('boot-overlay');
+  function hide(){overlay.classList.add('hidden');setTimeout(()=>overlay.remove(),500);}
+  const fb=setTimeout(hide,2200);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{clearTimeout(fb);hide();}));
+})();
+</script>
 <script src="script.js"></script>
 </body>
 </html>

@@ -318,7 +318,46 @@ const FX = {
 
 const SAVE_UTIL = {
   normalizeMeta(data){const base={soulCoins:0,permaUpgrades:{},bestFloor:0};if(!data||typeof data!=='object')return base;return {soulCoins:Number.isFinite(data.soulCoins)?data.soulCoins:base.soulCoins,permaUpgrades:data.permaUpgrades&&typeof data.permaUpgrades==='object'?data.permaUpgrades:{},bestFloor:Number.isFinite(data.bestFloor)?data.bestFloor:base.bestFloor,version:SAVE_VERSION};},
-  normalizeRun(data){if(!data||typeof data!=='object')return null;const player=data.player&&typeof data.player==='object'?data.player:{};return {version:SAVE_VERSION,classId:typeof data.classId==='string'?data.classId:'warrior',floor:Number.isFinite(data.floor)?data.floor:1,player:{...player,inventory:Array.isArray(player.inventory)?player.inventory:[],quickSlots:Array.isArray(player.quickSlots)?player.quickSlots.slice(0,3).concat([null,null,null]).slice(0,3):[null,null,null],equipment:player.equipment&&typeof player.equipment==='object'?player.equipment:{weapon:null,armor:null,ring:null,relic:null}},chests:Array.isArray(data.chests)?data.chests:[]};},
+  _sanitizeNum(v,fallback=0){return Number.isFinite(v)?v:fallback;},
+  normalizeRun(data){
+    if(!data||typeof data!=='object')return null;
+    const player=data.player&&typeof data.player==='object'?data.player:{};
+    // FIX: Sanitize ALL numeric stats — JSON.stringify converts NaN→null,
+    // Object.assign then sets null which can produce NaN in arithmetic
+    const S=this._sanitizeNum.bind(this);
+    const sanitized={
+      ...player,
+      hp:Math.max(0,S(player.hp,1)),
+      maxHp:Math.max(1,S(player.maxHp,100)),
+      mp:Math.max(0,S(player.mp,0)),
+      maxMp:Math.max(0,S(player.maxMp,0)),
+      atk:Math.max(1,S(player.atk,10)),
+      spd:Math.max(0.5,S(player.spd,2)),
+      def:Math.max(0,S(player.def,0)),
+      crit:Math.max(0,S(player.crit,0)),
+      critMult:Math.max(1.5,S(player.critMult,2)),
+      hpRegen:Math.max(0,S(player.hpRegen,0)),
+      mpRegen:Math.max(0,S(player.mpRegen,0)),
+      goldMult:Math.max(1,S(player.goldMult,1)),
+      soulMult:Math.max(1,S(player.soulMult,1)),
+      thorns:Math.max(0,S(player.thorns,0)),
+      skillCd:Math.max(0.5,S(player.skillCd,6)),
+      skillMp:Math.max(0,S(player.skillMp,0)),
+      attackRate:Math.max(0.14,S(player.attackRate,0.5)),
+      attackRange:Math.max(16,S(player.attackRange,48)),
+      gold:Math.max(0,S(player.gold,0)),
+      exp:Math.max(0,S(player.exp,0)),
+      soulCoins:Math.max(0,S(player.soulCoins,0)),
+      kills:Math.max(0,S(player.kills,0)),
+      damageDealt:Math.max(0,S(player.damageDealt,0)),
+      damageTaken:Math.max(0,S(player.damageTaken,0)),
+      floorTime:Math.max(0,S(player.floorTime,0)),
+      inventory:Array.isArray(player.inventory)?player.inventory:[],
+      quickSlots:Array.isArray(player.quickSlots)?player.quickSlots.slice(0,3).concat([null,null,null]).slice(0,3):[null,null,null],
+      equipment:player.equipment&&typeof player.equipment==='object'?player.equipment:{weapon:null,armor:null,ring:null,relic:null},
+    };
+    return {version:SAVE_VERSION,classId:typeof data.classId==='string'?data.classId:'warrior',floor:Number.isFinite(data.floor)?data.floor:1,player:sanitized,chests:Array.isArray(data.chests)?data.chests:[]};
+  },
 };
 
 // ================================================================
@@ -677,13 +716,30 @@ class Player {
     this.mp=this.maxMp;
   }
   _clampStats(){
-    this.attackRate=Math.max(0.14,this.attackRate||0.14);
-    this.skillCd=Math.max(0.5,this.skillCd||0.5);
-    this.attackRange=Math.max(16,this.attackRange||16);
-    this.crit=Math.max(0,Math.min(75,this.crit||0));
-    this.critMult=Math.max(1.5,this.critMult||2);
+    // FIX: NaN guards on ALL stats — gear scaling (fractional mods) + old saves
+    // can produce NaN/undefined, causing permanent "ghost" state (NaN <= 0 = false)
+    if(!Number.isFinite(this.hp))this.hp=0;
+    if(!Number.isFinite(this.mp))this.mp=0;
+    if(!Number.isFinite(this.maxHp)||this.maxHp<=0)this.maxHp=1;
+    if(!Number.isFinite(this.maxMp)||this.maxMp<0)this.maxMp=0;
+    if(!Number.isFinite(this.atk)||this.atk<0)this.atk=1;
+    if(!Number.isFinite(this.def)||this.def<0)this.def=0;
+    if(!Number.isFinite(this.spd)||this.spd<=0)this.spd=1;
+    if(!Number.isFinite(this.crit))this.crit=0;
+    if(!Number.isFinite(this.critMult))this.critMult=2;
+    this.attackRate=Math.max(0.14,Number.isFinite(this.attackRate)?this.attackRate:0.14);
+    this.skillCd=Math.max(0.5,Number.isFinite(this.skillCd)?this.skillCd:0.5);
+    this.attackRange=Math.max(16,Number.isFinite(this.attackRange)?this.attackRange:16);
+    this.crit=Math.max(0,Math.min(75,this.crit));
+    this.critMult=Math.max(1.5,this.critMult);
     this.hp=Math.min(this.hp,this.maxHp);
     this.mp=Math.min(this.mp,this.maxMp);
+    // FIX: Guard invuln/dashTimer for NaN (can happen if dt is bad on first frame)
+    if(!Number.isFinite(this.invuln)||this.invuln<0)this.invuln=0;
+    if(!Number.isFinite(this.dashTimer)||this.dashTimer<0)this.dashTimer=0;
+    // FIX: Round maxHp/maxMp to integers for clean display
+    this.maxHp=Math.ceil(this.maxHp);
+    this.maxMp=Math.ceil(this.maxMp);
   }
   _applyStatMods(mods,sign=1){
     if(!mods)return;
@@ -866,9 +922,16 @@ class Player {
   }
   takeDamage(amount,source){
     if(this.dead||this.invuln>0)return 0;
-    const armorScale=100/(100+Math.max(0,this.def)*4.25);
-    const mitigated=Math.max(1,Math.floor(amount*armorScale));
+    // FIX: NaN guard — if amount or def are NaN/undefined (old save, gear bug),
+    // clamp to safe values so HP never becomes NaN (NaN<=0 is false → zombie player)
+    const safeAmount=Number.isFinite(amount)&&amount>0?amount:0;
+    if(safeAmount===0)return 0;
+    const safeDef=Number.isFinite(this.def)&&this.def>=0?this.def:0;
+    const armorScale=100/(100+safeDef*4.25);
+    const mitigated=Math.max(1,Math.floor(safeAmount*armorScale));
     this.hp-=mitigated;
+    // FIX: Explicitly detect NaN and reset to 0 so death detection works
+    if(!Number.isFinite(this.hp))this.hp=0;
     this.damageTaken+=mitigated;
     this.hitFlash=1;
     this.invuln=0.05;
@@ -1286,7 +1349,8 @@ class Enemy {
     return checks.every(p=>{const tx=Math.floor(p.x/CFG.TILE),ty=Math.floor(p.y/CFG.TILE);const t=dungeon.tiles[ty]?.[tx];return tx>=0&&ty>=0&&tx<dungeon.W&&ty<dungeon.H&&t!==0&&t!==2;});
   }
   _drawHpBar(ctx,cx,cy){
-    const pct=U.clamp(this.hp/this.maxHp,0,1);
+    const rawPct=this.maxHp>0?this.hp/this.maxHp:0;
+    const pct=U.clamp(Number.isFinite(rawPct)?rawPct:0,0,1);
     const sx=this.x-cx,sy=this.y-cy;
     const w=this.isBoss?72:30;
     const h=this.isBoss?8:5;
@@ -1323,10 +1387,12 @@ class Enemy {
     ctx.restore();
   }
   takeDamage(amount,isCrit){
-    this.hp-=amount;
+    // FIX: NaN/negative guard — projectile dmg can be NaN if player atk is corrupted
+    const safe=Number.isFinite(amount)&&amount>0?Math.floor(amount):1;
+    this.hp-=safe;
     this.hitFlash=1;
     this.hpBarTimer=2.5;
-    if(this.hp<=0){this.dead=true;return true;}
+    if(this.hp<=0){this.hp=0;this.dead=true;return true;}
     return false;
   }
   draw(ctx,cx,cy){
@@ -1720,20 +1786,57 @@ const Draw = {
   tile(ctx,x,y,type,anim){
     const T=CFG.TILE;
     const biome=CFG.BIOME||CFG.BIOMES[0];
+    const seed=x*73856093^y*19349663; // deterministic per-tile hash
+    const micro=((seed>>8)&0xFF)/255; // 0..1 stable micro-variation
     if(type===1||type===3||type===5){
-      const v=(Math.sin(x*0.3+y*0.7)*0.5+0.5)*0.12;
-      ctx.fillStyle=`hsl(${220+Math.sin(x+y)*6},${28+v*12}%,${10+v*8}%)`;
-      ctx.fillRect(x*T,y*T,T,T);
-      ctx.fillStyle=`${biome.accent}18`;
-      ctx.fillRect(x*T+2,y*T+2,T-4,T-4);
-      if((x+y)%3===0){ctx.fillStyle='rgba(255,255,255,0.03)';ctx.fillRect(x*T+3,y*T+3,T-6,T-6);}
-      if(type===3){ctx.fillStyle=biome.wallTop;ctx.fillRect(x*T+4,y*T,T-8,T);ctx.fillStyle=biome.accent;ctx.fillRect(x*T+T/2-2,y*T+T/3,4,4);}
+      // Base floor — biome color with subtle noise
+      const v=micro*0.14;
+      const hShift=Math.sin(x*0.4+y*0.8)*4;
+      ctx.fillStyle=biome.floor1;ctx.fillRect(x*T,y*T,T,T);
+      // Floor tile inset
+      ctx.fillStyle=`${biome.accent}12`;
+      ctx.fillRect(x*T+1,y*T+1,T-2,T-2);
+      // Subtle grid lines
+      ctx.strokeStyle='rgba(0,0,0,0.18)';ctx.lineWidth=0.5;
+      ctx.strokeRect(x*T+0.5,y*T+0.5,T-1,T-1);
+      // Micro shimmer on some tiles
+      if(micro>0.72){
+        ctx.fillStyle=`${biome.accent}22`;
+        ctx.fillRect(x*T+4,y*T+4,T-8,T-8);
+      }
+      // Scuff marks on floor for variety
+      if(micro>0.88){
+        ctx.fillStyle='rgba(0,0,0,0.12)';
+        ctx.fillRect(x*T+6,y*T+T-8,T-12,2);
+      }
+      if(type===3){
+        ctx.fillStyle=biome.wallTop;ctx.fillRect(x*T+4,y*T,T-8,T);
+        ctx.fillStyle=biome.accent;ctx.fillRect(x*T+T/2-2,y*T+T/3,4,4);
+      }
     } else if(type===2){
+      // Wall with more depth
       ctx.fillStyle=biome.wall;ctx.fillRect(x*T,y*T,T,T);
-      ctx.fillStyle=biome.wallTop;ctx.fillRect(x*T,y*T,T,4);
-      ctx.fillStyle=`${biome.accent}28`;
-      if((x+y)%2===0)ctx.fillRect(x*T+2,y*T+6,T-4,T/2-4);
-      else ctx.fillRect(x*T+4,y*T+T/2,T-8,T/2-4);
+      // Top bevel
+      ctx.fillStyle=biome.wallTop;ctx.fillRect(x*T,y*T,T,5);
+      // Side shadow
+      ctx.fillStyle='rgba(0,0,0,0.22)';ctx.fillRect(x*T+T-4,y*T,4,T);
+      // Stone pattern variation
+      if(micro<0.4){
+        ctx.fillStyle=`${biome.accent}18`;
+        ctx.fillRect(x*T+2,y*T+6,T-4,T/2-5);
+      } else if(micro<0.75){
+        ctx.fillStyle=`${biome.accent}14`;
+        ctx.fillRect(x*T+4,y*T+T/2,T-8,T/2-5);
+      }
+      // Edge highlight
+      ctx.fillStyle='rgba(255,255,255,0.03)';
+      ctx.fillRect(x*T,y*T,2,T);
+    } else if(type===4){
+      // Stair tile — animated glow
+      ctx.fillStyle=biome.floor1;ctx.fillRect(x*T,y*T,T,T);
+      const gStair=ctx.createRadialGradient(x*T+T/2,y*T+T/2,2,x*T+T/2,y*T+T/2,T*0.7);
+      gStair.addColorStop(0,`${CFG.C.stair}55`);gStair.addColorStop(1,'transparent');
+      ctx.fillStyle=gStair;ctx.fillRect(x*T,y*T,T,T);
     }
   },
 };
@@ -2509,7 +2612,6 @@ class GameplayScene extends Scene {
     this.player.y=this.dungeon.playerStart.y;
     this.player.floor=this.currentFloor;
     CFG.BIOME=getBiome(this.currentFloor);
-    CFG.BIOME=getBiome(this.currentFloor);
     this.enemies=this.dungeon.enemies.map(e=>{
       if(e.type==='boss'){const boss=new Boss(e.x,e.y,this.currentFloor);boss.scene=this;return boss;}
       const data=CFG.ENEMIES.find(d=>d.id===e.type)||CFG.ENEMIES[0];
@@ -2543,10 +2645,20 @@ class GameplayScene extends Scene {
   _initUI(){
     const W=this.W,H=this.H;
     this.joystick=new VirtualJoystick(85,H-110,55);
-    this.touchTargets={skill1:{x:W-85,y:H-128,r:35},skill2:{x:W-155,y:H-83,r:28},dash:{x:W-50,y:H-78,r:25},pause:{x:W-30,y:30,r:22},minimap:{x:30,y:74,r:18},inventory:{x:W-110,y:74,r:22},shop:{x:W-70,y:74,r:22}};
+    // FIX: Icon buttons moved to y=86 (was y=74) to avoid overlap with boss HP bar (y=60-76)
+    // pause + minimap: top-right but pushed lower; inventory/shop: slightly lower still
+    this.touchTargets={
+      skill1:{x:W-85,y:H-128,r:35},
+      skill2:{x:W-155,y:H-83,r:28},
+      dash:{x:W-50,y:H-78,r:25},
+      pause:{x:W-22,y:24,r:18},
+      minimap:{x:W-22,y:50,r:16},
+      inventory:{x:W-50,y:82,r:18},
+      shop:{x:W-82,y:82,r:18},
+    };
     this.quickSlotTargets=[{x:W/2-64,y:H-25,r:18},{x:W/2-16,y:H-25,r:18},{x:W/2+32,y:H-25,r:18}];
     this.showMinimap=true;this.time=0;this.paused=false;
-    this._keyX=0;this._keyY=0; // keyboard axes initialized
+    this._keyX=0;this._keyY=0;
     this.stairPrompt=0;this._stairTriggered=false;this.pendingUpgrade=false;
     this._shakeTimer=0;this._shakeIntensity=0;
     this.hitstopTimer=0;
@@ -2557,8 +2669,8 @@ class GameplayScene extends Scene {
     this.bossHpVisible=false;
     this._gameOverQueued=false;
     this._stairTriggered=false;
-    this._damageFlash=0;  // screen-edge flash on player hit
-    this._critFlash=0;    // screen flash on player crit
+    this._damageFlash=0;
+    this._critFlash=0;
     this._spawnHazards();
   }
 
@@ -2801,9 +2913,14 @@ class GameplayScene extends Scene {
   }
 
   _goNextFloor(){
+    // FIX: Lock stairs IMMEDIATELY to block re-entry during scene fade
+    // Bug was: _stairTriggered reset to false inside this fn, so game loop fired
+    // _goNextFloor every frame during fade (~8×) → floor jumped 4-8 at once
+    this.stairsLocked=true;
+    this._stairTriggered=true; // keep true until _initUI resets on new floor
+    this.stairPrompt=0;
     this.currentFloor++;
     const isBossFloor=this.currentFloor%5===0;
-    this._stairTriggered=false;
     if(!isBossFloor&&this.currentFloor>1){
       // Upgrade screen between normal floors
       this.game.switchScene('upgrade',{floor:this.currentFloor-1,player:this.player});
@@ -3056,56 +3173,61 @@ class GameplayScene extends Scene {
 
   _drawHUD(ctx,W,H){
     const p=this.player;
-    // Top bar bg
-    ctx.fillStyle='rgba(5,5,20,0.88)';ctx.fillRect(0,0,W,52);
-    ctx.strokeStyle='rgba(100,80,200,0.4)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,52);ctx.lineTo(W,52);ctx.stroke();
+    // ── Top bar background (taller to avoid overlaps) ─────────────
+    ctx.fillStyle='rgba(5,5,20,0.90)';ctx.fillRect(0,0,W,58);
+    ctx.strokeStyle='rgba(100,80,200,0.4)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,58);ctx.lineTo(W,58);ctx.stroke();
 
-    // HP bar
-    Draw.bar(ctx,8,10,130,12,p.hp/p.maxHp,CFG.C.hp,'#220000',CFG.C.hp);
-    ctx.font='9px Arial';ctx.fillStyle='#fff';ctx.textAlign='left';ctx.fillText(`❤ ${Math.ceil(p.hp)}/${p.maxHp}`,10,20);
-    // MP bar
-    Draw.bar(ctx,8,28,130,10,p.mp/p.maxMp,CFG.C.mana,'#001133',CFG.C.mana);
-    ctx.font='9px Arial';ctx.fillStyle='#aaccff';ctx.fillText(`✦ ${Math.floor(p.mp)}/${p.maxMp}`,10,36);
+    // HP bar — left side
+    const hpPct=Number.isFinite(p.hp/p.maxHp)?p.hp/p.maxHp:0;
+    Draw.bar(ctx,8,8,140,13,hpPct,CFG.C.hp,'#220000',CFG.C.hp);
+    ctx.font='bold 9px Arial';ctx.fillStyle='#fff';ctx.textAlign='left';
+    ctx.fillText(`❤ ${Math.ceil(Math.max(0,p.hp))}/${p.maxHp}`,10,19);
 
-    // Floor name
+    // MP bar — left side below HP
+    const mpPct=p.maxMp>0&&Number.isFinite(p.mp/p.maxMp)?p.mp/p.maxMp:0;
+    Draw.bar(ctx,8,26,140,10,mpPct,CFG.C.mana,'#001133',CFG.C.mana);
+    ctx.font='9px Arial';ctx.fillStyle='#aaccff';ctx.textAlign='left';
+    ctx.fillText(`✦ ${Math.floor(Math.max(0,p.mp))}/${p.maxMp}`,10,34);
+
+    // ── Floor name — center ────────────────────────────────────────
     const biome=CFG.BIOME||getBiome(this.currentFloor);
-    const floorName=this.currentFloor%5===0?`Tầng ${this.currentFloor} — BOSS`:`Tầng ${this.currentFloor} — ${biome.name}`;
-    ctx.font='bold 11px Arial';ctx.fillStyle=this.currentFloor%5===0?CFG.C.neon3:biome.accent;ctx.textAlign='center';
-    ctx.shadowColor=this.currentFloor%5===0?CFG.C.neon3:biome.accent;ctx.shadowBlur=6;ctx.fillText(floorName,W/2,22);ctx.shadowBlur=0;
+    const floorName=this.currentFloor%5===0?`Tầng ${this.currentFloor} — BOSS`:`Tầng ${this.currentFloor}`;
+    ctx.font='bold 11px Arial';
+    ctx.fillStyle=this.currentFloor%5===0?CFG.C.neon3:biome.accent;
+    ctx.textAlign='center';
+    ctx.shadowColor=this.currentFloor%5===0?CFG.C.neon3:biome.accent;
+    ctx.shadowBlur=6;ctx.fillText(floorName,W/2,19);ctx.shadowBlur=0;
+    // Biome name small under floor
+    ctx.font='9px Arial';ctx.fillStyle=CFG.C.textDim;
+    ctx.fillText(biome.name,W/2,32);
 
-    // Gold
+    // ── Gold + kills — right top corner ───────────────────────────
     ctx.font='bold 12px Arial';ctx.fillStyle=CFG.C.textGold;ctx.textAlign='right';
-    ctx.shadowColor=CFG.C.textGold;ctx.shadowBlur=5;ctx.fillText(`💰 ${U.fmtNum(p.gold)}`,W-10,22);ctx.shadowBlur=0;
-    // Kill count
-    ctx.font='10px Arial';ctx.fillStyle=CFG.C.textDim;ctx.fillText(`☠ ${p.kills}`,W-10,38);
+    ctx.shadowColor=CFG.C.textGold;ctx.shadowBlur=5;
+    ctx.fillText(`💰 ${U.fmtNum(p.gold)}`,W-8,20);ctx.shadowBlur=0;
+    ctx.font='10px Arial';ctx.fillStyle=CFG.C.textDim;
+    ctx.fillText(`☠ ${p.kills}`,W-8,34);
 
-    // ── Joystick (no bg strip — fully transparent area) ───────────
-    this.joystick.draw(ctx);
-
-    // ── Skill button 1 (ultimate) ─────────────────────────────────
+    // ── Skill button (bottom-right) ────────────────────────────────
     const s1=this.touchTargets.skill1;
     const s1ready=p.skillTimer<=0&&p.mp>=p.skillMp;
     ctx.save();
-    ctx.shadowColor=s1ready?CFG.C.neon1:'#333355';
-    ctx.shadowBlur=s1ready?18:4;
-    // Local backdrop only under this button
+    ctx.shadowColor=s1ready?CFG.C.neon1:'#333355';ctx.shadowBlur=s1ready?18:4;
     Draw.roundRect(ctx,s1.x-s1.r,s1.y-s1.r,s1.r*2,s1.r*2,s1.r,
       s1ready?U.rgba(CFG.C.neon1,0.22):'rgba(8,8,22,0.52)',
       s1ready?CFG.C.neon1:'#334455');
     ctx.font='15px Arial';ctx.fillStyle=s1ready?CFG.C.neon1:'#667';
-    ctx.textAlign='center';
-    ctx.fillText(p.skillLevel>=1?'✦':'⚡',s1.x,s1.y+6);
+    ctx.textAlign='center';ctx.fillText(p.skillLevel>=1?'✦':'⚡',s1.x,s1.y+6);
     if(p.skillLevel>=1){ctx.font='7px Arial';ctx.fillStyle=CFG.C.neon3;ctx.fillText('★',s1.x+s1.r*0.55,s1.y-s1.r*0.55);}
     ctx.font='8px Arial';ctx.fillStyle=s1ready?CFG.C.neon1:'#445';
     ctx.fillText(s1ready?'SẴN':`${p.skillTimer.toFixed(1)}s`,s1.x,s1.y+s1.r+10);
     ctx.restore();
 
-    // ── Dash button ───────────────────────────────────────────────
+    // ── Dash button ────────────────────────────────────────────────
     const s2=this.touchTargets.dash;
     const dashReady=p.dashCooldown<=0;
-    ctx.save();
-    ctx.shadowColor=dashReady?CFG.C.neon2:'#223';
-    ctx.shadowBlur=dashReady?12:3;
+    ctx.save();ctx.shadowColor=dashReady?CFG.C.neon2:'#223';ctx.shadowBlur=dashReady?12:3;
     Draw.roundRect(ctx,s2.x-s2.r,s2.y-s2.r,s2.r*2,s2.r*2,s2.r,
       dashReady?U.rgba(CFG.C.neon2,0.18):'rgba(8,8,22,0.52)',
       dashReady?CFG.C.neon2:'#334455');
@@ -3113,38 +3235,46 @@ class GameplayScene extends Scene {
     ctx.textAlign='center';ctx.fillText('💨',s2.x,s2.y+5);
     ctx.restore();
 
-    // ── Pause / Minimap / Inventory / Shop (icon buttons, minimal bg) ─
+    // ── Icon buttons row (right side, BELOW top bar, y=62) ────────
+    // FIX: Moved inventory/shop buttons DOWN from y=74 to y=70 area
+    // and pause/minimap remain top-right — no collision with equipment strip
     const _iconBtn=(t,icon,alpha=0.5)=>{
       ctx.save();ctx.globalAlpha=alpha;
-      Draw.roundRect(ctx,t.x-t.r,t.y-t.r,t.r*2,t.r*2,t.r,'rgba(5,5,18,0.48)','#334');
+      Draw.roundRect(ctx,t.x-t.r,t.y-t.r,t.r*2,t.r*2,t.r,'rgba(5,5,18,0.55)','#334');
       ctx.globalAlpha=1;ctx.font='13px Arial';ctx.fillStyle='#99aacc';
       ctx.textAlign='center';ctx.fillText(icon,t.x,t.y+5);
       ctx.restore();
     };
     _iconBtn(this.touchTargets.pause,'⏸',0.55);
-    _iconBtn(this.touchTargets.minimap,'🗺',0.5);
-    _iconBtn(this.touchTargets.inventory,'🎒',0.5);
-    _iconBtn(this.touchTargets.shop,'👜',0.5);
+    _iconBtn(this.touchTargets.minimap,'🗺',0.50);
+    _iconBtn(this.touchTargets.inventory,'🎒',0.50);
+    _iconBtn(this.touchTargets.shop,'👜',0.50);
 
-    // Minimap
-    if(this.showMinimap)this._drawMinimap(ctx,W,H);
-
-    // Equipment summary
-    const equipX=W-146,equipY=8,equipSize=18;
+    // ── Equipment slots — bottom-left of HUD strip (y=8, beside HP bar) ──
+    // FIX: Moved from top-right (colliding with gold) to left of centre, below joystick zone
+    // Render as a horizontal strip on the RIGHT side, rows of 2, starting at x=W-76
+    // But we move them entirely to left side under HP bar to avoid right-side clutter
     const eqOrder=['weapon','armor','ring','relic'];
+    const eqStartX=8, eqStartY=42, eqSize=14, eqGap=2;
     eqOrder.forEach((slot,i)=>{
-      const ex=equipX+(i%2)*35, ey=equipY+Math.floor(i/2)*26;
-      const item=p.equipment&&p.equipment[slot]?(p.equipment[slot].data||ITEM_DB[p.equipment[slot].id]):null;
-      Draw.roundRect(ctx,ex,ey,equipSize,equipSize,4,item?U.rgba(CFG.RARITY_COLORS[item.rarity||0],0.18):'rgba(10,10,30,0.6)',item?CFG.RARITY_COLORS[item.rarity||0]:'#445');
-      ctx.font='11px Arial';ctx.fillStyle=item?'#fff':'#556';ctx.textAlign='center';ctx.fillText(item?(item.icon||GEAR_SHORT[slot]||'?'):'＋',ex+9,ey+13);
-      if(item){ctx.font='7px Arial';ctx.fillStyle='#bbb';ctx.fillText(GEAR_SHORT[slot],ex+9,ey+22);}
+      const ex=eqStartX+i*(eqSize+eqGap+2);
+      const ey=eqStartY;
+      const item=p.equipment&&p.equipment[slot]?(p.equipment[slot].data||p.equipment[slot]):null;
+      const rc=item?CFG.RARITY_COLORS[item.rarity||0]:'#445';
+      Draw.roundRect(ctx,ex,ey,eqSize,eqSize,3,item?U.rgba(rc,0.22):'rgba(10,10,30,0.5)',rc);
+      ctx.font='9px Arial';ctx.fillStyle=item?'#fff':'#446';ctx.textAlign='center';
+      ctx.fillText(item?(item.icon||GEAR_SHORT[slot]||'?'):GEAR_SHORT[slot]||'＋',ex+eqSize/2,ey+10);
     });
 
-    // Quick slots — minimal pill behind only the 3 icons
+    // ── Joystick ───────────────────────────────────────────────────
+    this.joystick.draw(ctx);
+
+    // ── Minimap ────────────────────────────────────────────────────
+    if(this.showMinimap)this._drawMinimap(ctx,W,H);
+
+    // ── Quick slots — minimal centered pill at bottom ──────────────
     const qy=H-25,qx=W/2;
-    // Tiny translucent pill just behind the 3 slots, not full-width
-    ctx.save();
-    ctx.globalAlpha=0.45;
+    ctx.save();ctx.globalAlpha=0.45;
     Draw.roundRect(ctx,qx-3*48/2-4,qy-18,3*48+8,36,8,'rgba(5,5,18,0.55)','#334');
     ctx.restore();
     for(let i=0;i<3;i++){
@@ -3158,20 +3288,32 @@ class GameplayScene extends Scene {
   }
 
   _drawBossHPBar(ctx,W,boss){
-    const bx=W*0.1,by=55,bw=W*0.8,bh=14;
-    ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(bx-4,by-2,bw+8,bh+4);
-    Draw.bar(ctx,bx,by,bw,bh,boss.hp/boss.maxHp,boss.enraged?CFG.C.neon3:CFG.C.boss,'#330011',boss.enraged?CFG.C.neon3:CFG.C.boss);
+    // FIX: Boss bar now at y=60 (below top bar separator at y=58), not y=55
+    // This prevents overlap with icon buttons row (pause/minimap at y~74)
+    const bx=W*0.08,by=60,bw=W*0.84,bh=14;
+    ctx.fillStyle='rgba(0,0,0,0.78)';ctx.fillRect(bx-4,by-2,bw+8,bh+22);
+    const pct=Math.max(0,boss.hp/boss.maxHp);
+    const barCol=boss.enraged?CFG.C.neon3:CFG.C.boss;
+    Draw.bar(ctx,bx,by,bw,bh,pct,barCol,'#330011',barCol);
     ctx.strokeStyle=boss.enraged?CFG.C.neon3:'#ff4466';ctx.lineWidth=1;ctx.strokeRect(bx,by,bw,bh);
-    const pct=boss.hp/boss.maxHp;
     ctx.font='bold 10px Arial';ctx.fillStyle='#fff';ctx.textAlign='center';
-    ctx.fillText(`${boss._bossData?boss._bossData.name:CFG.BOSS.name}  ${Math.ceil(boss.hp)}/${boss.maxHp}`,W/2,by+10);
-    if(boss.enraged){ctx.save();ctx.shadowColor=CFG.C.neon3;ctx.shadowBlur=8;ctx.font='9px Arial';ctx.fillStyle=CFG.C.neon3;ctx.fillText('⚡ NỔI ĐIÊN!',W/2,by+26);ctx.restore();}
+    const displayHp=Math.max(0,Math.ceil(boss.hp));
+    ctx.fillText(`${boss._bossData?boss._bossData.name:CFG.BOSS.name}  ${displayHp}/${boss.maxHp}`,W/2,by+10);
+    if(boss.enraged){
+      ctx.save();ctx.shadowColor=CFG.C.neon3;ctx.shadowBlur=8;ctx.font='9px Arial';ctx.fillStyle=CFG.C.neon3;
+      ctx.fillText('⚡ NỔI ĐIÊN!',W/2,by+24);ctx.restore();
+    }
   }
 
   _drawMinimap(ctx,W,H){
-    const d=this.dungeon,T=2,mx=60,my=62,mw=d.W*T,mh=d.H*T;
-    ctx.save();ctx.globalAlpha=0.85;
-    ctx.fillStyle='rgba(5,5,20,0.9)';ctx.fillRect(mx-2,my-2,mw+4,mh+4);
+    // FIX: Minimap repositioned to bottom-left corner (clear of HUD buttons)
+    // Previously at top-left y=62 which conflicted with boss HP bar area
+    const d=this.dungeon,T=2;
+    const mw=d.W*T,mh=d.H*T;
+    const mx=8, my=H-mh-90; // above joystick, bottom-left
+    ctx.save();ctx.globalAlpha=0.82;
+    ctx.fillStyle='rgba(5,5,20,0.88)';
+    Draw.roundRect(ctx,mx-3,my-3,mw+6,mh+6,4,'rgba(5,5,20,0.88)','#334');
     for(let y=0;y<d.H;y++)for(let x=0;x<d.W;x++){
       const t=d.tiles[y][x];
       if(t===0)continue;
@@ -3181,10 +3323,15 @@ class GameplayScene extends Scene {
       ctx.fillRect(mx+x*T,my+y*T,T,T);
     }
     // Player dot
-    const px=Math.floor(this.player.x/CFG.TILE)*T,py=Math.floor(this.player.y/CFG.TILE)*T;
+    const px=Math.floor(this.player.x/CFG.TILE)*T;
+    const py=Math.floor(this.player.y/CFG.TILE)*T;
     ctx.fillStyle='#ffffff';ctx.fillRect(mx+px,my+py,3,3);
     // Enemies
-    this.enemies.forEach(e=>{const ex=Math.floor(e.x/CFG.TILE)*T,ey=Math.floor(e.y/CFG.TILE)*T;ctx.fillStyle=e.isBoss?CFG.C.boss:CFG.C.enemy;ctx.fillRect(mx+ex,my+ey,2,2);});
+    this.enemies.forEach(e=>{
+      const ex=Math.floor(e.x/CFG.TILE)*T,ey=Math.floor(e.y/CFG.TILE)*T;
+      ctx.fillStyle=e.isBoss?CFG.C.boss:CFG.C.enemy;
+      ctx.fillRect(mx+ex,my+ey,2,2);
+    });
     ctx.restore();
   }
 
