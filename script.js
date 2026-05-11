@@ -2529,7 +2529,6 @@ class GameOverScene extends Scene {
   enter(data){
     this.stats=data;this.time=0;
     this.meta=SaveMgr.load()||{soulCoins:0,permaUpgrades:{},bestFloor:0};
-    // Award soul coins & gold
     const earned=Math.floor((data.soulCoins||0)*(data.soulMult||1));
     this.meta.soulCoins=(this.meta.soulCoins||0)+earned;
     this.earnedSouls=earned;
@@ -2537,38 +2536,67 @@ class GameOverScene extends Scene {
     SaveMgr.save(this.meta);SaveMgr.clearRun();
   }
   update(dt){this.time+=dt;}
+
+  _retryFloor(){
+    // Respawn at same floor: restore snapshot, reset HP to 40%, clear dead flag
+    const s=this.stats;
+    const snap=s.playerSnapshot;
+    if(!snap){this.game.switchScene('charselect');return;}
+    // Restore HP to 40% (min 1), clear dead state
+    snap.hp=Math.max(1,Math.floor((snap.maxHp||50)*0.40));
+    snap.dead=false;
+    snap.kills=snap.kills||0;
+    snap.damageDealt=snap.damageDealt||0;
+    snap.damageTaken=snap.damageTaken||0;
+    snap.floorTime=0; // reset floor timer for retry
+    this.game.switchScene('gameplay',{retryFloor:true,floor:s.floor,classId:s.classId||snap.classId,playerSnapshot:snap});
+  }
+
   onTouchEnd(id,x,y){
     U.vibrate(20);this.game.audio.sfx('uiClick');
-    if(y>480&&y<535&&x>30&&x<this.W/2-10)this.game.switchScene('charselect');
-    if(y>480&&y<535&&x>this.W/2+10&&x<this.W-30)this.game.switchScene('menu');
+    const W=this.W;
+    // CHƠI LẠI TẦNG NÀY (left)
+    if(y>480&&y<535&&x>20&&x<W/2-10)this._retryFloor();
+    // VỀ THÀNH (right)
+    if(y>480&&y<535&&x>W/2+10&&x<W-20)this.game.switchScene('menu');
+    // NHÂN VẬT MỚI (bottom)
+    if(y>548&&y<595&&x>20&&x<W-20)this.game.switchScene('charselect');
   }
+
   draw(){
     const{ctx,W,H,time}=this;
     ctx.fillStyle='rgba(4,3,15,0.98)';ctx.fillRect(0,0,W,H);
-    // Broken effect
     for(let i=0;i<8;i++){const x=Math.random()*W,yy=Math.random()*200+100,l=Math.random()*60+20;ctx.save();ctx.globalAlpha=0.05;ctx.strokeStyle=CFG.C.neon3;ctx.lineWidth=0.5;ctx.beginPath();ctx.moveTo(x,yy);ctx.lineTo(x+Math.random()*20-10,yy+l);ctx.stroke();ctx.restore();}
-    // Title
     const shake=time<1?Math.sin(time*40)*3*(1-time):0;
     ctx.save();ctx.translate(W/2+shake,0);
     Draw.glowText(ctx,'NGƯƠI ĐÃ',0,120,CFG.C.neon3,28,20);
     Draw.glowText(ctx,'NGÃ XUỐNG...',0,158,CFG.C.neon3,22,15);
     ctx.restore();
-    // Stats
-    const s=this.stats;const sx=30,sy=195,sw=W-60,sh=240;
+    const s=this.stats;const sx=20,sy=188,sw=W-40,sh=240;
     Draw.roundRect(ctx,sx,sy,sw,sh,10,'rgba(12,5,25,0.9)',CFG.C.neon3);
-    const rows=[['🗺 Tầng đạt được',s.floor||1],['💀 Quái đã giết',s.kills||0],['💰 Vàng kiếm được',U.fmtNum(s.gold||0)],['⏱ Thời gian sống',`${Math.floor((s.time||0)/60)}m${Math.floor((s.time||0)%60)}s`],['⚔ Sát thương gây ra',U.fmtNum(s.damageDealt||0)]];
+    const rows=[['🗺 Tầng',s.floor||1],['💀 Quái đã giết',s.kills||0],['💰 Vàng',U.fmtNum(s.gold||0)],['⏱ Thời gian sống',`${Math.floor((s.time||0)/60)}m${Math.floor((s.time||0)%60)}s`],['⚔ Sát thương',U.fmtNum(s.damageDealt||0)]];
     rows.forEach(([k,v],i)=>{
-      ctx.font='12px Arial';ctx.fillStyle=CFG.C.textDim;ctx.textAlign='left';ctx.fillText(k,sx+15,sy+30+i*44);
-      ctx.font='bold 15px Arial';ctx.fillStyle=CFG.C.text;ctx.textAlign='right';ctx.fillText(v,sx+sw-15,sy+30+i*44);
+      ctx.font='12px Arial';ctx.fillStyle=CFG.C.textDim;ctx.textAlign='left';ctx.fillText(k,sx+12,sy+28+i*44);
+      ctx.font='bold 15px Arial';ctx.fillStyle=CFG.C.text;ctx.textAlign='right';ctx.fillText(v,sx+sw-12,sy+28+i*44);
     });
-    // Soul coins earned
-    Draw.glowText(ctx,`+${this.earnedSouls} 💎 Soul Coins`,W/2,sy+sh+24,CFG.C.textGold,14,8);
-    // Buttons
-    const btnY=490;
-    Draw.roundRect(ctx,30,btnY,W/2-40,48,8,U.rgba(CFG.C.neon1,0.15),CFG.C.neon1);
-    Draw.glowText(ctx,'CHƠI LẠI',W/4+10,btnY+28,CFG.C.neon1,13,6);
-    Draw.roundRect(ctx,W/2+10,btnY,W/2-40,48,8,U.rgba(CFG.C.neon2,0.15),CFG.C.neon2);
-    Draw.glowText(ctx,'VỀ THÀNH',W*3/4,btnY+28,CFG.C.neon2,13,6);
+    Draw.glowText(ctx,`+${this.earnedSouls} 💎 Soul Coins`,W/2,sy+sh+22,CFG.C.textGold,14,8);
+
+    // ── Buttons ──
+    const btnY=483;
+    // Left: retry floor (highlighted primary)
+    Draw.roundRect(ctx,20,btnY,W/2-30,48,8,U.rgba(CFG.C.neon1,0.22),CFG.C.neon1);
+    Draw.glowText(ctx,'↩ CHƠI LẠI',W/4+5,btnY+30,CFG.C.neon1,13,7);
+    ctx.font='9px Arial';ctx.fillStyle=CFG.C.textDim;ctx.textAlign='center';
+    ctx.fillText(`Tầng ${s.floor||1} · HP 40%`,W/4+5,btnY+43);
+
+    // Right: back to town
+    Draw.roundRect(ctx,W/2+10,btnY,W/2-30,48,8,U.rgba(CFG.C.neon2,0.15),CFG.C.neon2);
+    Draw.glowText(ctx,'🏰 VỀ THÀNH',W*3/4,btnY+30,CFG.C.neon2,13,6);
+
+    // Bottom: new character (smaller, subtle)
+    Draw.roundRect(ctx,20,548,W-40,40,8,'rgba(20,10,40,0.7)','#446');
+    ctx.font='11px Arial';ctx.fillStyle='#778';ctx.textAlign='center';
+    ctx.fillText('✦ Tạo nhân vật mới (bắt đầu từ Tầng 1)',W/2,572);
   }
 }
 
@@ -2596,6 +2624,30 @@ class PauseScene extends Scene {
 class GameplayScene extends Scene {
   enter(data){
     this.meta=SaveMgr.load()||{soulCoins:0,permaUpgrades:{}};
+
+    // ── FIX: Retry same floor after death ──────────────────────────────
+    if(data&&data.retryFloor&&data.playerSnapshot){
+      const snap=data.playerSnapshot;
+      const classData=CFG.CLASSES.find(c=>c.id==(data.classId||snap.classId))||CFG.CLASSES[0];
+      this.player=new Player(classData,null);
+      this.player.scene=this;
+      Object.assign(this.player,snap);
+      this.player.scene=this;
+      this.player.inventory=Array.isArray(snap.inventory)?snap.inventory:[];
+      this.player.inventory.forEach(s=>{if(s&&s.uid==null)s.uid=Math.floor(Math.random()*1e9);});
+      this.player.quickSlots=Array.isArray(snap.quickSlots)?snap.quickSlots.slice(0,3):[null,null,null];
+      this.player.equipment=snap.equipment&&typeof snap.equipment==='object'?snap.equipment:{weapon:null,armor:null,ring:null,relic:null};
+      Object.values(this.player.equipment).forEach(e=>{if(e&&e.stackRef)delete e.stackRef;});
+      this.player.legendary={projectileEcho:0,critChain:0.35,critChainRange:120,skillPulse:false,chestBurst:false,killLeechHp:0,killLeechMp:0};
+      Object.values(this.player.equipment).forEach(e=>{if(e&&e.legendaryId)this.player._applyLegendaryEffect(e,1);});
+      // Restore HP to 40%, ensure alive
+      this.player.hp=Math.max(1,Math.floor(this.player.maxHp*0.40));
+      this.player.dead=false;
+      this.currentFloor=data.floor||1;
+      this._initFloor();
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────
     if(data&&data.resume&&!data.fromUpgrade&&!data.fromShop){
       const saved=SaveMgr.loadRun();
       if(saved){this._loadRun(saved);return;}
@@ -2909,7 +2961,9 @@ class GameplayScene extends Scene {
     // Player death
     if(p.dead&&!this._gameOverQueued){
       this._gameOverQueued=true;
-      setTimeout(()=>this.game.switchScene('gameover',{floor:this.currentFloor,kills:p.kills,gold:p.gold,time:p.floorTime,damageDealt:p.damageDealt,soulCoins:p.soulCoins,soulMult:p.soulMult}),800);
+      // FIX: Snapshot player state BEFORE clearing save, so retry-floor can restore it
+      const _deathSnap=this._serializePlayer();
+      setTimeout(()=>this.game.switchScene('gameover',{floor:this.currentFloor,kills:p.kills,gold:p.gold,time:p.floorTime,damageDealt:p.damageDealt,soulCoins:p.soulCoins,soulMult:p.soulMult,classId:p.classId,playerSnapshot:_deathSnap}),800);
     }
   }
 
